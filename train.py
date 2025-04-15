@@ -3,7 +3,6 @@ from objects.track import Track
 from objects.population import Population # Import Population class
 import os
 
-#TODO Update the stats to show the best car fitness
 # Initialize Pygame
 pygame.init()
 

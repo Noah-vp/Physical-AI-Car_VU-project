@@ -15,11 +15,11 @@ class Population:
         self.reset_population(track)
 
     def reset_population(self, track, best_car=None):
-        if self.generation % 10 == 0 and self.generation != 0:
+        if self.generation % 100 == 0 and self.generation != 0:
             self.save_model()
         if len(self.cars) > 0:
-            #add the average fitness of the previous generation to the stats
-            self.stats.append(sum(car["fitness"] for car in self.cars) / len(self.cars))
+            #add the fitness of the best car to the stats
+            self.stats.append(self.get_best_car()["fitness"])
         self.cars = []
         start_angle, start_pos = track.randomize_start_pos()
         x, y = track.pixel_to_world(start_pos[1], start_pos[0])
