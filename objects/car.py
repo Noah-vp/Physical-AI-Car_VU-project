@@ -3,13 +3,8 @@ import numpy as np
 import os
 
 class Car:
-    is_alive = True
-    # Make MAX_RAY_LENGTH a class constant for easy access
-    MAX_RAY_LENGTH = 200 
-    
-    # Movement parameters as class constants
     SPEED = 1  # Constant speed for all cars
-    ROTATION_SPEED = 1  # Degrees per frame/update when turning
+    ROTATION_SPEED = 2  # Degrees per frame/update when turning
 
 
     def __init__(self, start_x, start_y, track, start_angle=0, color=(255, 0, 0)):  # Default color is red
@@ -20,27 +15,20 @@ class Car:
         self.angle = start_angle # Degrees, 0 is right, positive is counter-clockwise
         self.track = track
         self.color = color  # Store the car's color
-        # self.screen = screen # Remove screen dependency from init
         
         # Initialize ray_lengths for this specific car instance
-        self.ray_lengths = [1.0] * 5 # Start with max length (normalized)
+        self.ray_lengths = [1.0] * 3 # Start with max length (normalized)
+        self.max_ray_length = 200
 
         # Movement parameters
         self.speed = Car.SPEED  # Use class constant
         self.rotation_speed = Car.ROTATION_SPEED  # Use class constant
 
         # Performance tracking
-        self.frames_alive = 0
         self.distance_traveled = 0
         self.last_position = (start_x, start_y)
-        self.progress = 0  # Track progress along the track
-        self.last_progress_update = 0  # Frames since last progress increase
-        self.turning_penalty = 0  # Penalty for excessive turning
-
-        # Lap tracking
-        self._half_laps = 0
-        self._last_col = None
-        self.laps = 0
+        self.stuck_frames = 0
+        self.is_alive = True
 
         # Load and prepare image
         self.base_image = None # Original image, correctly oriented and scaled
@@ -55,20 +43,14 @@ class Car:
         image_path = os.path.abspath(os.path.join(current_dir, "..", "assets", "images", "car.png"))
         try:
             loaded_image = pygame.image.load(image_path).convert_alpha()
-            # Scale the image to a reasonable size (e.g., 30x15 pixels)
-            # Get original dimensions and calculate scale factor to maintain ratio
-            orig_width = loaded_image.get_width()
-            orig_height = loaded_image.get_height()
-            scale_factor = 10 / orig_width  # Scale to 30px width
-            scaled_width = 10
-            scaled_height = int(orig_height * scale_factor)
-            scaled_image = pygame.transform.scale(loaded_image, (scaled_width, scaled_height))
+            # Scale the image to exactly 20x30 pixels
+            scaled_image = pygame.transform.scale(loaded_image, (20, 30))
             # Assume the loaded image points UP. Rotate it so that 0 degrees angle points RIGHT.
             self.base_image = pygame.transform.rotate(scaled_image, -90) # Rotate 90 deg clockwise
         except pygame.error as e:
             print(f"Error loading car image at {image_path}: {e}")
-            # Create a placeholder red rectangle if image loading fails
-            self.base_image = pygame.Surface((30, 15))
+            # Create a placeholder rectangle if image loading fails
+            self.base_image = pygame.Surface((20, 30))
             self.base_image.fill((255, 0, 0))
             self.base_image.set_colorkey((0, 0, 0))
 
@@ -76,11 +58,14 @@ class Car:
         """Adjusts the car's angle based on left/right input flags (0 or 1)."""
         if steering >= sensitivity:
             self.angle += self.rotation_speed # Turn left (positive angle change)
-            self.turning_penalty += abs(steering) * 0.1  # Small penalty for turning
+            self.speed = 0
         elif steering <= -sensitivity:
             self.angle -= self.rotation_speed # Turn right (negative angle change)
-            self.turning_penalty += abs(steering) * 0.1
+            self.speed = 0
+        else:
+            self.speed = Car.SPEED
         self.angle %= 360 # Keep angle within 0-360 degrees
+        self.update()
 
     def update(self):
         """Updates the car's position and checks for collisions."""
@@ -107,39 +92,21 @@ class Car:
         
         # Check for collisions
         self.check_collision()
-        
-        # Update ray casting
+    
         self.ray_cast()
-        
-        # Update performance metrics if still alive
-        if self.is_alive:
-            self.frames_alive += 1
-            self.check_lap()
 
-    def draw(self, screen):
-        """Draws the car onto the screen."""
-        if self.is_alive and self.image and self.rect:
-            # Create a colored version of the image
-            colored_image = self.image.copy()
-            # Fill the image with the car's color, preserving alpha
-            colored_image.fill(self.color, special_flags=pygame.BLEND_RGBA_MULT)
-            screen.blit(colored_image, self.rect.topleft)
-        elif self.base_image: # Fallback: draw base image if rotated image isn't available
-             # This might happen if update_image_rect hasn't been called or failed
-             center_x = self.x - self.base_image.get_width() // 2
-             center_y = self.y - self.base_image.get_height() // 2
-             colored_image = self.base_image.copy()
-             colored_image.fill(self.color, special_flags=pygame.BLEND_RGBA_MULT)
-             screen.blit(colored_image, (center_x, center_y))
-
-        # Draw the sensor rays in the same color as the car
-        if self.is_alive and self.ray_lengths:
-            ray_angles_relative = [-90, -45, 0, 45, 90] # Relative angles in degrees
+        self.check_stuck()
+    
+    def draw_rays(self, screen):
+        """Draws the rays onto the screen."""
+         # Draw the sensor rays in the same color as the car
+        if self.is_alive and self.ray_lengths :
+            ray_angles_relative = [-45, 0, 45] # Relative angles in degrees
             ray_color = self.color # Use the car's color for rays
             
             for i, normalized_length in enumerate(self.ray_lengths):
                 # Calculate the actual length in pixels
-                actual_length = normalized_length * Car.MAX_RAY_LENGTH
+                actual_length = normalized_length * self.max_ray_length
                 
                 # Calculate the absolute angle of this specific ray
                 ray_absolute_angle_deg = self.angle + ray_angles_relative[i]
@@ -152,6 +119,17 @@ class Car:
                 
                 # Draw the line from car center to the ray end point
                 pygame.draw.line(screen, ray_color, (self.x, self.y), (end_x, end_y), 1) # 1 pixel thickness
+            
+    def draw(self, screen):
+        """Draws the car onto the screen."""
+        if self.is_alive and self.image and self.rect:
+            # Create a colored version of the image
+            colored_image = self.image.copy()
+            # Fill the image with the car's color, preserving alpha
+            colored_image.fill(self.color, special_flags=pygame.BLEND_RGBA_MULT)
+            screen.blit(colored_image, self.rect.topleft)
+        
+        self.draw_rays(screen)
 
     def check_collision(self):
         """Checks if the car has collided with the track walls."""
@@ -227,7 +205,7 @@ class Car:
                         1 means the ray reached its maximum length
         """
         # Define ray angles relative to car's heading
-        ray_angles = [-90, -45, 0, 45, 90]  # degrees
+        ray_angles = [-45, 0, 45]  # degrees
         self.ray_lengths = []
         
         # Cast each ray
@@ -271,16 +249,20 @@ class Car:
         
         return self.ray_lengths
 
-    def check_lap(self):
-        """Checks if the car has completed a lap. by using the distance from the start position."""
-        # Convert current position to grid coordinates
-        grid_col = int((self.x - self.track.PIXEL_MARGIN) // (self.track.PIXEL_WIDTH + self.track.PIXEL_MARGIN))
+    def check_stuck(self):
+        """Checks if the car is stuck and should be respawned."""
+        if not self.is_alive:
+            return
         
-        # Check if we've crossed the start line
-        if self._last_col != grid_col and grid_col == self.track.start_pos[0]:
-            self._half_laps += 1
-        self.laps = self._half_laps // 2
-        self._last_col = grid_col
-        if self.laps > 2:
+        # Check if car has stopped moving
+        if self.speed == 0:
+            self.stuck_frames += 1
+        else:
+            self.stuck_frames = 0
+        
+        if self.stuck_frames > 60:
             self.is_alive = False
-
+        
+        if self.distance_traveled > 4000:
+            print("track completed")
+            self.is_alive = False

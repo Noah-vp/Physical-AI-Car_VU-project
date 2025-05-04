@@ -2,7 +2,7 @@ import pygame
 from objects.track import Track
 from objects.population import Population # Import Population class
 import os
-
+import random
 # Initialize Pygame
 pygame.init()
 
@@ -15,12 +15,16 @@ frame_rate = 60
 
 # Create track object
 clock = pygame.time.Clock()
-# Construct the full path to the track file relative to main.py
-track_file_path = os.path.join(os.path.dirname(__file__), "assets", "tracks", "track_0.json")
-track = Track(track_file_path, width=WINDOW_WIDTH, height=WINDOW_HEIGHT)
+# loop through all track files in the assets/tracks folder
+track_list = []
+for file in os.listdir("assets/tracks"):
+    track_file_path = os.path.join(os.path.dirname(__file__), "assets", "tracks", file)
+    # if "org" in file:
+    track = Track(track_file_path, width=WINDOW_WIDTH, height=WINDOW_HEIGHT)
+    track_list.append(track)
 
-# Create population object
-population = Population(size=50, track=track)
+population = Population(size=50, track=track_list[0])
+population.track_list = track_list
 
 # Game state
 running = True
@@ -42,18 +46,19 @@ def handle_events():
                 if frame_rate < 500:
                     frame_rate += 10
             elif event.key == pygame.K_r:
-                population.reset_population(track)
+                for car in population.cars:
+                    car["car"].is_alive = False
             elif event.key == pygame.K_s:
                 population.save_model()
 
 
 def draw():
     # Clear screen
-    screen.fill(track.BACKGROUND_COLOR) # Use background color from track
+    screen.fill(population.track.BACKGROUND_COLOR) # Use background color from track
     
     # Draw track
-    if track.layout is not None:
-        track.draw(screen)
+    if population.track.layout is not None:
+        population.track.draw(screen)
     
     # Draw debug information
     debug_info = [

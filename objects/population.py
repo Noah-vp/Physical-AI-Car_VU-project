@@ -7,6 +7,7 @@ class Population:
     def __init__(self, size, track):
         self.size = size
         self.cars = []
+        self.track_list = []
         self.track = track
         self.generation = 0
         self.test_positions = 3  # Number of different start positions to test each car
@@ -32,7 +33,7 @@ class Population:
             
             # Create variations of the best car
             for _ in range(self.size - 1):
-                brain = Brain(5, [5])  # Simplified network
+                brain = Brain(3, [3])  # Simplified network for 3 ray angles
                 brain.mutate(best_car["brain"], mutation_rate=0.01)  # Single mutation rate
                 car = Car(x, y, track)
                 car.angle = start_angle
@@ -40,7 +41,7 @@ class Population:
         else:
             # Initial population - all random
             for _ in range(self.size):
-                brain = Brain(5, [5])  # Simplified network
+                brain = Brain(3, [3])  # Simplified network for 3 ray angles
                 brain.randomize_weights()
                 car = Car(x, y, track)
                 car.angle = start_angle
@@ -57,23 +58,27 @@ class Population:
         for car in self.cars:
             ray_distances = car["car"].ray_cast()
             steering = car["brain"].think(ray_distances)
-            car["car"].control(steering, 0.35)
-            car["car"].update()
-            # Simplified fitness: just distance traveled
+            car["car"].control(steering, 0.2)
             car["fitness"] = car["car"].distance_traveled
         if self.population_dead():
             if self.current_test_position < self.test_positions:
-                self.current_test_position += 1
-                start_angle, start_pos = self.track.randomize_start_pos()
-                # Reset all cars to the new start position and don't change the distance traveled to add the fitnesses of all the start positions
-                for car in self.cars:
-                    car["car"].x, car["car"].y = self.track.pixel_to_world(start_pos[1], start_pos[0])
-                    car["car"].angle = start_angle
-                    car["car"].is_alive = True # Reset alive status
+                self.next_test_position()
             else:
                 self.breed_population(self.get_best_car())
                 self.generation += 1
                 self.current_test_position = 0
+
+    def next_test_position(self):
+        self.current_test_position += 1
+        #get a random track from the track list
+        self.track = random.choice(self.track_list)
+        start_angle, start_pos = self.track.randomize_start_pos()
+        for car in self.cars:
+            car["car"].x, car["car"].y = self.track.pixel_to_world(start_pos[1], start_pos[0])
+            car["car"].angle = start_angle
+            car["car"].track = self.track
+            car["car"].is_alive = True # Reset alive status
+            
 
     def draw_population(self, screen):
         for car in self.cars:

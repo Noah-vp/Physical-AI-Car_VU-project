@@ -1,59 +1,44 @@
 import pygame
 import serial
 import sys
-import os
-from objects.car import Car
-from objects.track import Track
+import numpy as np
+import time
+from objects.democar import Democar
 
 # Initialize Pygame
 pygame.init()
 
-# Constants
-WINDOW_WIDTH = 800
+WINDOW_WIDTH = 600
 WINDOW_HEIGHT = 600
 
 # Set up the display
 screen = pygame.display.set_mode((WINDOW_WIDTH, WINDOW_HEIGHT))
-pygame.display.set_caption("Car Control")
+pygame.display.set_caption("Car Visualization")
 
-# Initialize serial communication
-try:
-    ser = serial.Serial('COM8', 9600, timeout=1)
-    print("Connected to COM8")
-except serial.SerialException:
-    print("Failed to connect to COM8")
-    sys.exit(1)
+# Set up the clock for controlling frame rate
+clock = pygame.time.Clock()
 
-# Create a simple track
-# First, create a track file if it doesn't exist
-track_file = "simple_track.json"
-if not os.path.exists(track_file):
-    track_data = {
-        "layout": [
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 1, 1, 1, 1, 1, 1, 1, 1, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
-        ],
-        "start_pos": [1, 1]
-    }
-    with open(track_file, 'w') as f:
-        import json
-        json.dump(track_data, f)
-
-# Initialize track and car
-track = Track(track_file, WINDOW_WIDTH, WINDOW_HEIGHT)
-start_x, start_y = track.pixel_to_world(track.start_pos[0], track.start_pos[1])
-car = Car(start_x, start_y, track, start_angle=0, color=(255, 0, 0))
-
-# Command state
+running = True
+ser = None
 current_command = None
-steering_angle = 180
+model_output = 0
+stop = False
+
+def read_raycast():
+    if ser and ser.is_open:
+        try:
+            data = ser.readline().decode('utf-8').strip()
+            if data:  # Only process non-empty lines
+                try:
+                    # split the data into a list and remove empty strings
+                    data = [float(x) for x in data.split(',') if x]
+                    if len(data) == 3:  # Ensure we have exactly 3 values
+                        return data
+                except ValueError:
+                    print(f"Invalid data received: {data}")
+        except serial.SerialException:
+            print("Error reading from serial port")
+    return None
 
 def send_command(command):
     """Send command to the car via serial"""
@@ -66,12 +51,18 @@ def send_command(command):
         except serial.SerialException:
             print("Error sending command")
 
-def main():
-    clock = pygame.time.Clock()
-    running = True
-    
+try:
+    # Add a small delay before connecting to allow the port to reset
+    time.sleep(1)
+    ser = serial.Serial('COM7', 9600, timeout=0.1)  # Reduced timeout
+    print("Connected to COM7")
+
+    # Initialize the car
+    car = Democar(x=WINDOW_WIDTH/2, y=WINDOW_HEIGHT/2)
+
     while running:
         # Handle events
+        command = ""
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -85,40 +76,44 @@ def main():
 
         if keys[pygame.K_LEFT]:
             steering = 1
-            car.speed = Car.SPEED
-            new_command = f"L,{steering_angle}"
+            car.speed = 1
+            new_command = f"L,{0}"
         elif keys[pygame.K_RIGHT]:
             steering = -1
-            car.speed = Car.SPEED
-            new_command = f"R,{steering_angle}"
+            car.speed = 1
+            new_command = f"R,{0}"
         elif keys[pygame.K_UP]:
-            car.speed = Car.SPEED
             new_command = "F,0"
         else:
             car.speed = 0
             new_command = "STOP"
 
-        # Send command if it has changed
-        if new_command is not None:
-            send_command(new_command)
+        # Clear the screen
+        screen.fill((255, 255, 255))
 
-        # Update car
-        car.control(steering, 0.1)  # 0.1 is the sensitivity
-        car.update()
+        # Read raycast data
+        raycast = read_raycast()
+        if raycast:
+            car.ray_lengths = raycast
         
-        # Draw everything
-        track.draw(screen)
+        # Update car control
+        send_command(command)
+        current_command = command
+        # Draw the car
         car.draw(screen)
         
-        # Update display
+        # Update the display
         pygame.display.flip()
         
-        # Control frame rate
+        # Control the frame rate
         clock.tick(60)
-    
-    # Clean up
-    ser.close()
-    pygame.quit()
 
-if __name__ == "__main__":
-    main() 
+except serial.SerialException as e:
+    print(f"Error while connecting to COM7: {str(e)}")
+    sys.exit(1)
+
+finally:
+    # Ensure the serial port is properly closed
+    if ser and ser.is_open:
+        ser.close()
+        print("Serial port closed")

@@ -15,7 +15,7 @@ PIXEL_MARGIN = 2
 WALL_COLOR = (255, 255, 255) # Define wall color
 BACKGROUND_COLOR = (0, 0, 0)
 START_COLOR = (0, 255, 0) # Define start position color
-TRACK_DIR = "../assets/tracks" # Directory to save tracks
+TRACK_DIR = "assets/demo_tracks" # Directory to save tracks
 
 # Initialise the PyGame screen according to resolution
 pygame.init()
